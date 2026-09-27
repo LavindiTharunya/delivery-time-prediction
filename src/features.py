@@ -1,23 +1,22 @@
 """
 Feature engineering functions and constants for the Delivery Time Prediction system.
+Strictly based on real columns from Olist dataset files:
+- olist_orders_dataset.csv
+- olist_order_items_dataset.csv
+- olist_sellers_dataset.csv
+- olist_customers_dataset.csv
+- olist_geolocation_dataset.csv
+- olist_products_dataset.csv
+- product_category_name_translation.csv
 """
 
 import numpy as np
 import pandas as pd
-from datetime import datetime, timedelta
-from typing import Union, List, Optional
-
-# Pre-computed scaling constants (from training set)
-PRICE_MEAN = 137.0400
-PRICE_STD = 209.0526
-FREIGHT_MEAN = 22.7858
-FREIGHT_STD = 21.5600
-DISTANCE_MEDIAN_DEFAULT = 434.1559
-WEIGHT_MEDIAN_DEFAULT = 700.0  # grams (~0.7 kg)
-DISPATCH_MEDIAN_DEFAULT = 2.0  # days
+from typing import Union, Dict
 
 # Centroid coordinates for Brazilian Federative Units (States)
-BRAZILIAN_STATE_COORDS = {
+# Used as high-reliability fallback when exact zip-code lat/long is unmapped
+BRAZILIAN_STATE_COORDS: Dict[str, tuple] = {
     'AC': (-9.97499, -67.8243),
     'AL': (-9.66599, -35.7350),
     'AM': (-3.11866, -60.0212),
@@ -47,23 +46,7 @@ BRAZILIAN_STATE_COORDS = {
     'TO': (-10.1844, -48.3336)
 }
 
-# Major Brazilian National Holidays (2016-2026 calendar reference)
-BRAZILIAN_HOLIDAYS = [
-    # 2016
-    "2016-01-01", "2016-02-09", "2016-03-25", "2016-04-21", "2016-05-01", 
-    "2016-05-26", "2016-09-07", "2016-10-12", "2016-11-02", "2016-11-15", "2016-11-25", "2016-12-25",
-    # 2017
-    "2017-01-01", "2017-02-28", "2017-04-14", "2017-04-21", "2017-05-01",
-    "2017-06-15", "2017-09-07", "2017-10-12", "2017-11-02", "2017-11-15", "2017-11-24", "2017-12-25",
-    # 2018
-    "2018-01-01", "2018-02-13", "2018-03-30", "2018-04-21", "2018-05-01",
-    "2018-05-31", "2018-09-07", "2018-10-12", "2018-11-02", "2018-11-15", "2018-11-23", "2018-12-25",
-    # Recurring anchor dates
-    "2025-01-01", "2025-04-21", "2025-05-01", "2025-09-07", "2025-10-12", "2025-11-02", "2025-11-15", "2025-11-28", "2025-12-25",
-    "2026-01-01", "2026-04-21", "2026-05-01", "2026-09-07", "2026-10-12", "2026-11-02", "2026-11-15", "2026-11-27", "2026-12-25"
-]
-
-HOLIDAY_DATETIMES = [pd.to_datetime(h) for h in BRAZILIAN_HOLIDAYS]
+DISTANCE_MEDIAN_DEFAULT = 431.64  # Calculated directly from Olist train set (km)
 
 
 def haversine_distance(
@@ -86,34 +69,6 @@ def haversine_distance(
     c = 2.0 * np.arcsin(np.clip(np.sqrt(a), 0.0, 1.0))
 
     return R * c
-
-
-def is_near_holiday(dt: Union[datetime, pd.Timestamp, str], window_days: int = 3) -> int:
-    """
-    Check if a given date falls within `window_days` before or after a major holiday.
-    Returns 1 if true, 0 otherwise.
-    """
-    if isinstance(dt, str):
-        dt = pd.to_datetime(dt)
-
-    for hol in HOLIDAY_DATETIMES:
-        if abs((dt - hol).days) <= window_days:
-            return 1
-    return 0
-
-
-def is_brazilian_rainy_season(dt: Union[datetime, pd.Timestamp, str, int]) -> int:
-    """
-    Brazilian Summer Rainy Season (Dec, Jan, Feb, Mar): Heavy downpours, flash floods,
-    and road transport disruptions across Southeast/South transit corridors.
-    """
-    if isinstance(dt, int):
-        month = dt
-    else:
-        if isinstance(dt, str):
-            dt = pd.to_datetime(dt)
-        month = dt.month
-    return 1 if month in [12, 1, 2, 3] else 0
 
 
 def get_state_distance(origin_state: str, dest_state: str) -> float:

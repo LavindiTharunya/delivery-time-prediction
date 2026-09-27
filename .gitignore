@@ -219,3 +219,5 @@ __marimo__/
 
 # Project data
 data/raw/
+data/processed/
+scratch/

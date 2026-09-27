@@ -1,6 +1,6 @@
 """
-Inference pipeline and DeliveryPredictor class supporting Package Weight,
-Supplier Dispatch Delay, and Weather Seasonality integration.
+Inference pipeline and DeliveryPredictor class using the trained model
+built exclusively on real Olist dataset columns.
 """
 
 import os
@@ -13,11 +13,7 @@ from typing import Dict, Any, Union, List, Optional
 
 from src.features import (
     DISTANCE_MEDIAN_DEFAULT,
-    WEIGHT_MEDIAN_DEFAULT,
-    DISPATCH_MEDIAN_DEFAULT,
     BRAZILIAN_STATE_COORDS,
-    is_near_holiday,
-    is_brazilian_rainy_season,
     get_state_distance
 )
 
@@ -26,7 +22,7 @@ DEFAULT_MODEL_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "mo
 
 class DeliveryPredictor:
     """
-    Production-ready delivery time predictor using enhanced XGBoost regression model.
+    Production delivery time predictor based on real Olist dataset features.
     """
 
     def __init__(self, model_dir: str = DEFAULT_MODEL_DIR):
@@ -34,16 +30,7 @@ class DeliveryPredictor:
         self.model = self._load_artifact("delivery_time_model.pkl")
         self.feature_cols = self._load_artifact("feature_columns.pkl")
         self.category_encoder = self._load_artifact("category_encoder.pkl")
-        self.seller_lookup = self._load_artifact("seller_performance_lookup.pkl")
-        self.seller_dispatch_lookup = self._load_optional_artifact("seller_dispatch_lookup.pkl", {})
         self.distance_median = self._load_artifact("distance_median_fallback.pkl")
-        self.weight_median = self._load_optional_artifact("weight_median_fallback.pkl", WEIGHT_MEDIAN_DEFAULT)
-        self.dispatch_median = self._load_optional_artifact("dispatch_median_fallback.pkl", DISPATCH_MEDIAN_DEFAULT)
-
-        if hasattr(self.seller_lookup, "mean"):
-            self.global_seller_avg = float(self.seller_lookup.mean())
-        else:
-            self.global_seller_avg = 11.388
 
     def _load_artifact(self, filename: str) -> Any:
         path = os.path.join(self.model_dir, filename)
@@ -56,21 +43,8 @@ class DeliveryPredictor:
         except Exception:
             return joblib.load(path)
 
-    def _load_optional_artifact(self, filename: str, default_val: Any) -> Any:
-        path = os.path.join(self.model_dir, filename)
-        if not os.path.exists(path):
-            return default_val
-        try:
-            with open(path, "rb") as f:
-                return pickle.load(f)
-        except Exception:
-            try:
-                return joblib.load(path)
-            except Exception:
-                return default_val
-
     def get_available_categories(self) -> List[str]:
-        """Return list of valid product categories."""
+        """Return list of valid product categories from translation dataset."""
         return sorted(list(self.category_encoder.classes_))
 
     def get_available_states(self) -> List[str]:
@@ -79,21 +53,22 @@ class DeliveryPredictor:
 
     def prepare_feature_vector(
         self,
-        purchase_month: int,
-        purchase_dayofweek: int,
-        same_state: int,
-        freight_value: float,
-        weight_g: float,
-        product_category: str,
-        distance_km: float,
-        near_holiday: int,
-        is_rainy_season: int,
         customer_state: str,
         seller_state: str,
-        supplier_dispatch_days: Optional[float] = None,
-        seller_id: Optional[str] = None
+        product_category: str = "bed_bath_table",
+        item_count: int = 1,
+        freight_value: float = 18.5,
+        price: float = 80.0,
+        purchase_month: int = 6,
+        purchase_dayofweek: int = 0,
+        estimated_delivery_gap_days: float = 23.5,
+        distance_km: Optional[float] = None
     ) -> pd.DataFrame:
         """Construct the exact feature vector expected by the model."""
+        c_state = customer_state.strip().upper()
+        s_state = seller_state.strip().upper()
+        same_state_val = 1 if c_state == s_state else 0
+
         # Encode product category
         try:
             cat_idx = int(self.category_encoder.transform([product_category])[0])
@@ -103,54 +78,31 @@ class DeliveryPredictor:
             else:
                 cat_idx = 0
 
-        # Supplier dispatch handling time
-        if supplier_dispatch_days is not None and supplier_dispatch_days >= 0:
-            dispatch_days_val = float(supplier_dispatch_days)
-        elif seller_id and seller_id in self.seller_dispatch_lookup:
-            dispatch_days_val = float(self.seller_dispatch_lookup.loc[seller_id])
-        else:
-            dispatch_days_val = float(self.dispatch_median)
-
-        # Seller overall delivery performance
-        if seller_id and seller_id in self.seller_lookup.index:
-            seller_avg = float(self.seller_lookup.loc[seller_id])
-        else:
-            seller_avg = self.global_seller_avg
-
-        # Distance fallback
+        # Distance calculation / fallback
         if distance_km is None or np.isnan(distance_km) or distance_km <= 0:
-            distance_km = float(self.distance_median)
-
-        # Weight fallback
-        if weight_g is None or np.isnan(weight_g) or weight_g <= 0:
-            weight_g = float(self.weight_median)
+            dist_val = get_state_distance(s_state, c_state)
+        else:
+            dist_val = float(distance_km)
 
         # Build feature dictionary initialized to 0.0
         row = {col: 0.0 for col in self.feature_cols}
-        
-        # Populate all available columns dynamically
+
+        if "same_state" in row: row["same_state"] = float(same_state_val)
+        if "distance_km" in row: row["distance_km"] = float(dist_val)
+        if "category_encoded" in row: row["category_encoded"] = float(cat_idx)
+        if "item_count" in row: row["item_count"] = float(item_count)
+        if "freight_value" in row: row["freight_value"] = float(freight_value)
+        if "price" in row: row["price"] = float(price)
         if "purchase_month" in row: row["purchase_month"] = float(purchase_month)
         if "purchase_dayofweek" in row: row["purchase_dayofweek"] = float(purchase_dayofweek)
-        if "same_state" in row: row["same_state"] = float(same_state)
-        if "total_weight_g" in row: row["total_weight_g"] = float(weight_g)
-        if "total_freight" in row: row["total_freight"] = float(freight_value)
-        if "category_encoded" in row: row["category_encoded"] = float(cat_idx)
-        if "distance_km" in row: row["distance_km"] = float(distance_km)
-        if "near_holiday" in row: row["near_holiday"] = float(near_holiday)
-        if "is_rainy_season" in row: row["is_rainy_season"] = float(is_rainy_season)
-        if "seller_avg_dispatch_days" in row: row["seller_avg_dispatch_days"] = float(dispatch_days_val)
-        if "seller_avg_delivery_days" in row: row["seller_avg_delivery_days"] = float(seller_avg)
-
-        # Legacy compatibility if old columns are still in model
-        if "price_scaled" in row: row["price_scaled"] = 0.0
-        if "freight_value_scaled" in row: row["freight_value_scaled"] = (freight_value - 22.78) / 21.56
+        if "estimated_delivery_gap_days" in row: row["estimated_delivery_gap_days"] = float(estimated_delivery_gap_days)
 
         # One-hot encoded state flags
-        cust_col = f"customer_state_{customer_state.upper()}"
+        cust_col = f"customer_state_{c_state}"
         if cust_col in row:
             row[cust_col] = 1.0
 
-        sell_col = f"seller_state_{seller_state.upper()}"
+        sell_col = f"seller_state_{s_state}"
         if sell_col in row:
             row[sell_col] = 1.0
 
@@ -160,20 +112,17 @@ class DeliveryPredictor:
         self,
         customer_state: str,
         seller_state: str,
+        product_category: str = "bed_bath_table",
+        item_count: int = 1,
         freight_value: float = 18.5,
-        weight_g: float = 700.0,
-        price: Optional[float] = None,
-        product_category: str = "office_furniture",
+        price: float = 80.0,
         purchase_date: Optional[Union[str, datetime]] = None,
-        supplier_dispatch_days: Optional[float] = None,
-        weather_condition: str = "auto",
-        distance_km: Optional[float] = None,
-        seller_id: Optional[str] = None,
-        near_holiday: Optional[int] = None
+        estimated_delivery_date: Optional[Union[str, datetime]] = None,
+        estimated_delivery_gap_days: Optional[float] = None,
+        distance_km: Optional[float] = None
     ) -> Dict[str, Any]:
         """
-        End-to-end prediction returning delivery days, estimated arrival date,
-        supplier handling breakdown, and weather/transit risk analysis.
+        End-to-end prediction returning estimated delivery days and arrival metrics.
         """
         # Parse purchase timestamp
         if purchase_date is None:
@@ -189,49 +138,33 @@ class DeliveryPredictor:
         s_state = seller_state.strip().upper()
         same_state_val = 1 if c_state == s_state else 0
 
-        # Auto-detect holiday proximity if not explicitly given
-        if near_holiday is None:
-            near_holiday_val = is_near_holiday(p_dt)
+        # Calculate estimated delivery gap SLA (in days)
+        if estimated_delivery_gap_days is not None:
+            gap_days = float(estimated_delivery_gap_days)
+        elif estimated_delivery_date is not None:
+            est_dt = pd.to_datetime(estimated_delivery_date)
+            gap_days = max(1.0, (est_dt - p_dt).total_seconds() / 86400.0)
         else:
-            near_holiday_val = int(near_holiday)
+            # Default Olist typical estimated SLA gap ~23 days
+            gap_days = 23.5
 
-        # Weather / Rainy season detection
-        if weather_condition.lower() in ["rainy", "rainy_season", "flood", "storm"]:
-            rainy_season_val = 1
-            weather_desc = "Adverse Weather / Summer Rainy Season (Heavy Rain Risk)"
-        elif weather_condition.lower() in ["dry", "normal", "clear"]:
-            rainy_season_val = 0
-            weather_desc = "Clear / Standard Weather Conditions"
-        else:
-            rainy_season_val = is_brazilian_rainy_season(month)
-            weather_desc = "Summer Wet Season (Dec-Mar Flood Risk)" if rainy_season_val else "Dry Season (Optimal Road Conditions)"
-
-        # Auto-compute distance if not given
+        # Distance calculation
         if distance_km is None or distance_km <= 0:
             dist_val = get_state_distance(s_state, c_state)
         else:
             dist_val = float(distance_km)
 
-        # Default supplier dispatch
-        if supplier_dispatch_days is None:
-            supplier_dispatch_val = float(self.dispatch_median)
-        else:
-            supplier_dispatch_val = float(supplier_dispatch_days)
-
         X_input = self.prepare_feature_vector(
-            purchase_month=month,
-            purchase_dayofweek=dayofweek,
-            same_state=same_state_val,
-            freight_value=freight_value,
-            weight_g=weight_g,
-            product_category=product_category,
-            distance_km=dist_val,
-            near_holiday=near_holiday_val,
-            is_rainy_season=rainy_season_val,
             customer_state=c_state,
             seller_state=s_state,
-            supplier_dispatch_days=supplier_dispatch_val,
-            seller_id=seller_id
+            product_category=product_category,
+            item_count=item_count,
+            freight_value=freight_value,
+            price=price,
+            purchase_month=month,
+            purchase_dayofweek=dayofweek,
+            estimated_delivery_gap_days=gap_days,
+            distance_km=dist_val
         )
 
         pred_days = float(self.model.predict(X_input)[0])
@@ -242,31 +175,22 @@ class DeliveryPredictor:
         min_arrival = p_dt + timedelta(days=max(1.0, pred_days - 2.0))
         max_arrival = p_dt + timedelta(days=pred_days + 2.5)
 
-        # Risk level determination
+        # Risk indicator based purely on logistical corridor distance & state boundary
         risk_score = 0
         risk_factors = []
         if same_state_val == 0:
             risk_score += 1
-            risk_factors.append("Inter-state road transport corridor")
+            risk_factors.append("Inter-state logistics corridor")
         if dist_val > 1000:
             risk_score += 1
-            risk_factors.append("Long-haul transit (>1,000 km)")
-        if near_holiday_val == 1:
-            risk_score += 2
-            risk_factors.append("Holiday logistics surge period")
-        if rainy_season_val == 1:
+            risk_factors.append("Long-distance transit corridor (>1,000 km)")
+        if month in [11, 12]:
             risk_score += 1
-            risk_factors.append("Summer wet season transport delays")
-        if weight_g > 5000:
-            risk_score += 1
-            risk_factors.append("Heavy/bulk freight handling (>5 kg)")
-        if supplier_dispatch_val > 3.0:
-            risk_score += 1
-            risk_factors.append(f"Extended supplier handling ({supplier_dispatch_val:.1f} days)")
+            risk_factors.append("End-of-year e-commerce high volume season")
 
-        if risk_score >= 3:
+        if risk_score >= 2:
             risk_level = "High"
-        elif risk_score >= 1:
+        elif risk_score == 1:
             risk_level = "Moderate"
         else:
             risk_level = "Low"
@@ -280,35 +204,28 @@ class DeliveryPredictor:
                 "earliest_date": min_arrival.strftime("%Y-%m-%d"),
                 "latest_date": max_arrival.strftime("%Y-%m-%d")
             },
-            "logistics_breakdown": {
-                "supplier_handling_days": round(supplier_dispatch_val, 1),
-                "estimated_transit_days": max(1.0, round(pred_days - supplier_dispatch_val, 1)),
-                "package_weight_kg": round(weight_g / 1000.0, 2),
-                "weather_status": weather_desc
-            },
             "route_summary": {
                 "customer_state": c_state,
                 "seller_state": s_state,
                 "same_state": bool(same_state_val),
                 "distance_km": round(dist_val, 1)
             },
-            "risk_analysis": {
-                "risk_level": risk_level,
-                "risk_factors": risk_factors,
-                "near_holiday": bool(near_holiday_val),
-                "rainy_season": bool(rainy_season_val)
-            },
             "order_details": {
                 "product_category": product_category,
+                "item_count": item_count,
+                "price": price,
                 "freight_value": freight_value,
-                "weight_g": weight_g,
-                "price": price if price is not None else 100.0,
-                "purchase_date": p_dt.strftime("%Y-%m-%d")
+                "purchase_date": p_dt.strftime("%Y-%m-%d"),
+                "estimated_delivery_gap_days": round(gap_days, 1)
+            },
+            "risk_analysis": {
+                "risk_level": risk_level,
+                "risk_factors": risk_factors
             }
         }
 
 
-# Global singleton instance for easy import
+# Global singleton instance
 _default_predictor: Optional[DeliveryPredictor] = None
 
 
@@ -320,37 +237,29 @@ def get_predictor() -> DeliveryPredictor:
 
 
 def predict_delivery_time(
-    purchase_month: int = 10,
-    purchase_dayofweek: int = 0,
-    same_state: int = 1,
-    price: float = 100.0,
-    freight_value: float = 18.0,
-    weight_g: float = 700.0,
-    product_category: str = "office_furniture",
-    distance_km: float = 150.0,
-    near_holiday: int = 0,
     customer_state: str = "SP",
     seller_state: str = "SP",
-    supplier_dispatch_days: float = 2.0,
-    seller_id: Optional[str] = None
+    product_category: str = "bed_bath_table",
+    item_count: int = 1,
+    price: float = 80.0,
+    freight_value: float = 18.5,
+    purchase_month: int = 6,
+    purchase_dayofweek: int = 0,
+    estimated_delivery_gap_days: float = 23.5,
+    distance_km: float = 150.0
 ) -> float:
-    """
-    Direct backward-compatible inference function matching project documentation.
-    """
+    """Direct numerical prediction function."""
     predictor = get_predictor()
     X = predictor.prepare_feature_vector(
-        purchase_month=purchase_month,
-        purchase_dayofweek=purchase_dayofweek,
-        same_state=same_state,
-        freight_value=freight_value,
-        weight_g=weight_g,
-        product_category=product_category,
-        distance_km=distance_km,
-        near_holiday=near_holiday,
-        is_rainy_season=is_brazilian_rainy_season(purchase_month),
         customer_state=customer_state,
         seller_state=seller_state,
-        supplier_dispatch_days=supplier_dispatch_days,
-        seller_id=seller_id
+        product_category=product_category,
+        item_count=item_count,
+        freight_value=freight_value,
+        price=price,
+        purchase_month=purchase_month,
+        purchase_dayofweek=purchase_dayofweek,
+        estimated_delivery_gap_days=estimated_delivery_gap_days,
+        distance_km=distance_km
     )
     return round(float(predictor.model.predict(X)[0]), 2)

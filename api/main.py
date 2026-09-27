@@ -1,6 +1,6 @@
 """
 FastAPI application for E-Commerce Delivery Time Prediction
-with Package Weight, Supplier Handling, and Weather Seasonality support.
+Strictly utilizing real features from the Olist Brazilian E-Commerce dataset.
 """
 
 from fastapi import FastAPI, HTTPException, status
@@ -12,9 +12,9 @@ from datetime import datetime
 from src.predict import get_predictor, DeliveryPredictor
 
 app = FastAPI(
-    title="E-Commerce Delivery Time Prediction API",
-    description="High-performance machine learning API predicting package delivery times across Brazil incorporating package weight, supplier dispatch delay, and weather seasonality.",
-    version="1.1.0"
+    title="Olist Delivery Time Prediction API",
+    description="Machine Learning API predicting package delivery times across Brazil using strictly real dataset columns (seller/customer states, haversine distance, product category, order items count, price, freight value, and purchase seasonality).",
+    version="2.0.0"
 )
 
 # Enable CORS
@@ -30,16 +30,13 @@ app.add_middleware(
 class SingleOrderRequest(BaseModel):
     customer_state: str = Field(..., description="Customer destination Brazilian state (e.g. SP, RJ, MG)", json_schema_extra={"example": "SP"})
     seller_state: str = Field(..., description="Seller origin Brazilian state (e.g. SP, PR, SC)", json_schema_extra={"example": "SP"})
-    freight_value: float = Field(default=22.0, description="Freight shipping charge in BRL (R$)", ge=0.0, json_schema_extra={"example": 22.50})
-    weight_g: float = Field(default=700.0, description="Package weight in grams", ge=10.0, json_schema_extra={"example": 1500.0})
-    price: Optional[float] = Field(default=100.0, description="Optional order price in BRL (R$)", json_schema_extra={"example": 129.90})
-    product_category: str = Field(default="office_furniture", description="Product category name in English", json_schema_extra={"example": "office_furniture"})
+    product_category: str = Field(default="bed_bath_table", description="Product category name in English", json_schema_extra={"example": "bed_bath_table"})
+    item_count: int = Field(default=1, description="Number of items in the order", ge=1, le=50, json_schema_extra={"example": 1})
+    price: float = Field(default=80.0, description="Total order price in BRL (R$)", ge=0.0, json_schema_extra={"example": 89.90})
+    freight_value: float = Field(default=18.50, description="Total freight charge in BRL (R$)", ge=0.0, json_schema_extra={"example": 18.50})
     purchase_date: Optional[str] = Field(default=None, description="ISO purchase date (YYYY-MM-DD)", json_schema_extra={"example": "2026-10-15"})
-    supplier_dispatch_days: Optional[float] = Field(default=2.0, description="Supplier fulfillment / dispatch duration in days", ge=0.0, json_schema_extra={"example": 2.0})
-    weather_condition: Optional[str] = Field(default="auto", description="Weather condition ('auto', 'normal', 'rainy_season', 'storm')", json_schema_extra={"example": "auto"})
-    distance_km: Optional[float] = Field(default=None, description="Optional route distance in km", ge=0.0)
-    seller_id: Optional[str] = Field(default=None, description="Optional unique seller identifier")
-    near_holiday: Optional[int] = Field(default=None, description="Optional flag: 1 if near holiday, 0 otherwise", ge=0, le=1)
+    estimated_delivery_date: Optional[str] = Field(default=None, description="Platform estimated delivery date (YYYY-MM-DD)", json_schema_extra={"example": "2026-11-08"})
+    distance_km: Optional[float] = Field(default=None, description="Optional custom route distance in km", ge=0.0)
 
 
 class DeliveryWindow(BaseModel):
@@ -47,13 +44,6 @@ class DeliveryWindow(BaseModel):
     max_days: float
     earliest_date: str
     latest_date: str
-
-
-class LogisticsBreakdown(BaseModel):
-    supplier_handling_days: float
-    estimated_transit_days: float
-    package_weight_kg: float
-    weather_status: str
 
 
 class RouteSummary(BaseModel):
@@ -66,18 +56,15 @@ class RouteSummary(BaseModel):
 class RiskAnalysis(BaseModel):
     risk_level: str
     risk_factors: List[str]
-    near_holiday: bool
-    rainy_season: bool
 
 
 class PredictionResponse(BaseModel):
     predicted_delivery_days: float
     estimated_delivery_date: str
     delivery_window: DeliveryWindow
-    logistics_breakdown: LogisticsBreakdown
     route_summary: RouteSummary
-    risk_analysis: RiskAnalysis
     order_details: Dict[str, Any]
+    risk_analysis: RiskAnalysis
 
 
 class BatchOrderRequest(BaseModel):
@@ -93,9 +80,21 @@ class BatchPredictionResponse(BaseModel):
 def root():
     return {
         "status": "online",
-        "service": "E-Commerce Delivery Time Prediction API",
-        "version": "1.1.0",
-        "features": ["Package Weight", "Supplier Handling Duration", "Weather Seasonality", "Spatial Distance"],
+        "service": "Olist Delivery Time Prediction API",
+        "version": "2.0.0",
+        "features": [
+            "seller_state",
+            "customer_state",
+            "same_state",
+            "distance_km (haversine)",
+            "product_category",
+            "item_count",
+            "freight_value",
+            "price",
+            "purchase_month",
+            "purchase_dayofweek",
+            "estimated_delivery_gap_days"
+        ],
         "docs_url": "/docs"
     }
 
@@ -126,23 +125,20 @@ def get_states():
 def predict_order(request: SingleOrderRequest):
     """
     Predict delivery duration and arrival date for a single e-commerce order
-    taking into account package weight, supplier handling time, and weather conditions.
+    using strictly real Olist dataset columns.
     """
     predictor = get_predictor()
     try:
         result = predictor.predict(
             customer_state=request.customer_state,
             seller_state=request.seller_state,
-            freight_value=request.freight_value,
-            weight_g=request.weight_g,
-            price=request.price,
             product_category=request.product_category,
+            item_count=request.item_count,
+            price=request.price,
+            freight_value=request.freight_value,
             purchase_date=request.purchase_date,
-            supplier_dispatch_days=request.supplier_dispatch_days,
-            weather_condition=request.weather_condition or "auto",
-            distance_km=request.distance_km,
-            seller_id=request.seller_id,
-            near_holiday=request.near_holiday
+            estimated_delivery_date=request.estimated_delivery_date,
+            distance_km=request.distance_km
         )
         return result
     except Exception as e:
@@ -164,16 +160,13 @@ def predict_batch_orders(request: BatchOrderRequest):
             res = predictor.predict(
                 customer_state=order.customer_state,
                 seller_state=order.seller_state,
-                freight_value=order.freight_value,
-                weight_g=order.weight_g,
-                price=order.price,
                 product_category=order.product_category,
+                item_count=order.item_count,
+                price=order.price,
+                freight_value=order.freight_value,
                 purchase_date=order.purchase_date,
-                supplier_dispatch_days=order.supplier_dispatch_days,
-                weather_condition=order.weather_condition or "auto",
-                distance_km=order.distance_km,
-                seller_id=order.seller_id,
-                near_holiday=order.near_holiday
+                estimated_delivery_date=order.estimated_delivery_date,
+                distance_km=order.distance_km
             )
             results.append(res)
         return {
