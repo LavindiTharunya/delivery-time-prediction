@@ -148,7 +148,7 @@ custom_theme = gr.themes.Soft(
     neutral_hue="slate"
 )
 
-with gr.Blocks(title="E-Commerce Delivery Time Prediction System", theme=custom_theme) as demo:
+with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
     gr.Markdown(
         """
         # 📦 E-Commerce Delivery Time Prediction System
@@ -280,4 +280,4 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System", theme=custom_
     )
 
 if __name__ == "__main__":
-    demo.launch(server_name="127.0.0.1", server_port=7860, share=False)
+    demo.launch(server_name="127.0.0.1", server_port=7860, theme=custom_theme, share=False)
