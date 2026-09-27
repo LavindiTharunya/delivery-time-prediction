@@ -78,7 +78,7 @@ delivery-time-prediction/
 
 ---
 
-## 🚀 Getting Started
+## Getting Started
 
 ### 1. Prerequisites & Installation
 

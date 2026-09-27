@@ -205,7 +205,7 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
                     label="Custom Haversine Distance in km (0 = Auto-calculate from state centroids)"
                 )
 
-            predict_btn = gr.Button("🚀 Calculate Delivery Estimate", variant="primary", size="lg")
+            predict_btn = gr.Button("Calculate Delivery Estimate", variant="primary", size="lg")
 
             gr.Markdown("#### 💡 Quick Test Scenarios")
             with gr.Row():
