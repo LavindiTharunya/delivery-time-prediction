@@ -1,5 +1,6 @@
 """
-Interactive Delivery Time Prediction Web Application (Gradio).
+Interactive Delivery Time Prediction Web Application (Gradio)
+with Package Weight, Supplier Handling Duration, and Weather Seasonality.
 """
 
 import gradio as gr
@@ -48,31 +49,51 @@ STATE_NAMES = {
 
 STATE_CHOICES = [(f"{code} - {STATE_NAMES.get(code, code)}", code) for code in states]
 
+DISPATCH_CHOICES = [
+    ("⚡ Fast Fulfillment (Same-Day / 0.5 Day)", 0.5),
+    ("📦 Standard Dispatch (1 - 2 Days)", 2.0),
+    ("⏳ Slower / Custom Item (4 Days)", 4.0),
+    ("🏭 Extended Manufacturing / Bulk (6 Days)", 6.0)
+]
+
+WEATHER_CHOICES = [
+    ("Auto-Detect from Purchase Date", "auto"),
+    ("☀️ Clear / Standard Weather Conditions", "normal"),
+    ("⛈️ Brazilian Summer Rainy Season (Heavy Rain / Flood Risk)", "rainy_season"),
+    ("⚠️ Severe Weather / Storm Warning", "storm")
+]
+
 
 def format_prediction(
     customer_state_choice: str,
     seller_state_choice: str,
     product_category: str,
-    price: float,
+    weight_kg: float,
     freight_value: float,
+    dispatch_speed: float,
+    weather_choice: str,
     purchase_date_str: str,
     custom_distance: float
-) -> Tuple[str, str, str, str, str]:
+) -> Tuple[str, str, str]:
     """
-    Callback function that generates prediction results and formatted HTML cards.
+    Callback function generating prediction results with package weight,
+    supplier handling duration, and weather seasonality.
     """
     c_state = customer_state_choice if len(customer_state_choice) == 2 else customer_state_choice.split(" - ")[0]
     s_state = seller_state_choice if len(seller_state_choice) == 2 else seller_state_choice.split(" - ")[0]
 
     dist_arg = float(custom_distance) if custom_distance and custom_distance > 0 else None
+    weight_g_val = float(weight_kg) * 1000.0
 
     result = predictor.predict(
         customer_state=c_state,
         seller_state=s_state,
-        price=price,
         freight_value=freight_value,
+        weight_g=weight_g_val,
         product_category=product_category,
         purchase_date=purchase_date_str,
+        supplier_dispatch_days=float(dispatch_speed),
+        weather_condition=weather_choice,
         distance_km=dist_arg
     )
 
@@ -81,22 +102,23 @@ def format_prediction(
     window = result["delivery_window"]
     route = result["route_summary"]
     risk = result["risk_analysis"]
+    logistics = result["logistics_breakdown"]
 
     # 1. Primary Highlight Card
     badge_color = "#10B981" if risk["risk_level"] == "Low" else ("#F59E0B" if risk["risk_level"] == "Moderate" else "#EF4444")
-    
+
     summary_html = f"""
     <div style="background: linear-gradient(135deg, #1e293b, #0f172a); border-radius: 16px; padding: 24px; color: white; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.3); border: 1px solid #334155;">
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px;">
-            <span style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">XGBoost Enhanced v3 Estimate</span>
+            <span style="font-size: 0.9rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; color: #94a3b8;">XGBoost Enhanced Logistics Model (R²: 0.40)</span>
             <span style="background-color: {badge_color}; color: white; padding: 4px 12px; border-radius: 9999px; font-size: 0.8rem; font-weight: 700;">{risk["risk_level"]} Risk</span>
         </div>
         <div style="display: flex; align-items: baseline; gap: 8px; margin-bottom: 12px;">
             <span style="font-size: 3.5rem; font-weight: 800; color: #38bdf8; line-height: 1;">{days:.1f}</span>
-            <span style="font-size: 1.5rem; font-weight: 600; color: #cbd5e1;">Days</span>
+            <span style="font-size: 1.5rem; font-weight: 600; color: #cbd5e1;">Days Total</span>
         </div>
         <div style="font-size: 1.15rem; color: #f8fafc; font-weight: 500; margin-bottom: 8px;">
-            📅 Expected Arrival: <strong style="color: #67e8f9;">{arr_date}</strong>
+            📅 Expected Customer Arrival: <strong style="color: #67e8f9;">{arr_date}</strong>
         </div>
         <div style="font-size: 0.95rem; color: #94a3b8;">
             Estimated Delivery Window: <strong>{window['earliest_date']}</strong> ({window['min_days']}d) &mdash; <strong>{window['latest_date']}</strong> ({window['max_days']}d)
@@ -104,21 +126,20 @@ def format_prediction(
     </div>
     """
 
-    # 2. Transit Metrics Cards
-    same_state_badge = "🟢 Same-State Delivery" if route["same_state"] else "🟠 Inter-State Route"
-    holiday_badge = "🎉 Near National Holiday" if risk["near_holiday"] else "✅ Standard Operating Period"
+    # 2. Transit Metrics Cards (Breakdown of Supplier vs Carrier Road Transit)
+    same_state_badge = "🟢 Same-State Route" if route["same_state"] else "🟠 Inter-State Route"
 
     metrics_html = f"""
     <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-top: 10px;">
         <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155;">
-            <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;">ROUTE DISTANCE</div>
-            <div style="font-size: 1.4rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">{route['distance_km']:.0f} km</div>
-            <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">{s_state} ➔ {c_state} ({same_state_badge})</div>
+            <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;">SUPPLIER FULFILLMENT</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">{logistics['supplier_handling_days']:.1f} Days</div>
+            <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">Package Weight: <strong>{logistics['package_weight_kg']:.2f} kg</strong></div>
         </div>
         <div style="background: #1e293b; padding: 16px; border-radius: 12px; border: 1px solid #334155;">
-            <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;">CALENDAR IMPACT</div>
-            <div style="font-size: 1.1rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">{holiday_badge}</div>
-            <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">Purchase Date: {purchase_date_str}</div>
+            <div style="font-size: 0.8rem; color: #94a3b8; font-weight: 600;">CARRIER TRANSIT CORRIDOR</div>
+            <div style="font-size: 1.4rem; font-weight: 700; color: #f1f5f9; margin-top: 4px;">{route['distance_km']:.0f} km</div>
+            <div style="font-size: 0.85rem; color: #cbd5e1; margin-top: 4px;">{s_state} ➔ {c_state} ({same_state_badge})</div>
         </div>
     </div>
     """
@@ -127,11 +148,13 @@ def format_prediction(
     if risk["risk_factors"]:
         factors_items = "".join([f"<li style='margin-bottom: 4px;'>{f}</li>" for f in risk["risk_factors"]])
     else:
-        factors_items = "<li>Optimal routing conditions &mdash; standard transit timeline.</li>"
+        factors_items = "<li>Optimal shipping conditions &mdash; standard delivery timeline.</li>"
 
     factors_html = f"""
     <div style="background: #0f172a; padding: 16px; border-radius: 12px; border: 1px solid #1e293b; margin-top: 10px;">
-        <div style="font-size: 0.85rem; font-weight: 700; color: #e2e8f0; margin-bottom: 6px;">TRANSIT DRIVING FACTORS:</div>
+        <div style="font-size: 0.85rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px;">WEATHER & OPERATIONAL IMPACT:</div>
+        <div style="font-size: 0.85rem; color: #38bdf8; margin-bottom: 8px;">{logistics['weather_status']}</div>
+        <div style="font-size: 0.85rem; font-weight: 700; color: #e2e8f0; margin-bottom: 4px;">IDENTIFIED LOGISTICS FACTORS:</div>
         <ul style="margin: 0; padding-left: 20px; color: #94a3b8; font-size: 0.9rem;">
             {factors_items}
         </ul>
@@ -141,7 +164,7 @@ def format_prediction(
     return summary_html, metrics_html, factors_html
 
 
-# Build custom modern UI with Gradio Blocks
+# Modern Gradio UI
 custom_theme = gr.themes.Soft(
     primary_hue="cyan",
     secondary_hue="slate",
@@ -152,13 +175,13 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
     gr.Markdown(
         """
         # 📦 E-Commerce Delivery Time Prediction System
-        ### Real-Time Machine Learning Logistics Estimator for Brazilian E-Commerce Orders
+        ### Real-Time Machine Learning Logistics Estimator (Weight, Supplier Dispatch & Weather Seasonality)
         """
     )
 
     with gr.Row():
         with gr.Column(scale=5):
-            gr.Markdown("#### 📍 Order & Geolocation Parameters")
+            gr.Markdown("#### 📍 Route & Product Parameters")
             with gr.Row():
                 customer_state_in = gr.Dropdown(
                     choices=[c[0] for c in STATE_CHOICES],
@@ -183,20 +206,34 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
                     placeholder="2026-10-15"
                 )
 
+            gr.Markdown("#### ⚖️ Package Weight & Freight")
             with gr.Row():
-                price_in = gr.Slider(
-                    minimum=5.0,
-                    maximum=3000.0,
-                    value=120.0,
-                    step=5.0,
-                    label="Order Price (BRL R$)"
+                weight_in = gr.Slider(
+                    minimum=0.1,
+                    maximum=30.0,
+                    value=1.5,
+                    step=0.1,
+                    label="Package Weight (kg)"
                 )
                 freight_in = gr.Slider(
-                    minimum=0.0,
-                    maximum=200.0,
-                    value=18.5,
+                    minimum=5.0,
+                    maximum=250.0,
+                    value=22.0,
                     step=1.0,
                     label="Freight Shipping Fee (BRL R$)"
+                )
+
+            gr.Markdown("#### 🏭 Supplier Dispatch Speed & Weather Conditions")
+            with gr.Row():
+                dispatch_in = gr.Dropdown(
+                    choices=[(label, val) for label, val in DISPATCH_CHOICES],
+                    value=2.0,
+                    label="Supplier Handling / Dispatch Speed"
+                )
+                weather_in = gr.Dropdown(
+                    choices=[(label, val) for label, val in WEATHER_CHOICES],
+                    value="auto",
+                    label="Weather / Seasonal Situation"
                 )
 
             with gr.Accordion("⚙️ Advanced Route Distance Override (Optional)", open=False):
@@ -209,10 +246,10 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
 
             gr.Markdown("#### 💡 Quick Test Scenarios")
             with gr.Row():
-                scenario1_btn = gr.Button("🏢 SP Local Same-State", size="sm")
-                scenario2_btn = gr.Button("🌴 SP to Bahia (Inter-State)", size="sm")
-                scenario3_btn = gr.Button("🚢 SP to Amazonas (Cross-Country)", size="sm")
-                scenario4_btn = gr.Button("🛍️ Black Friday Surge (Nov)", size="sm")
+                scenario1_btn = gr.Button("🏢 Fast Local (SP Same-State)", size="sm")
+                scenario2_btn = gr.Button("🛋️ Heavy Furniture (SP to RJ)", size="sm")
+                scenario3_btn = gr.Button("⛈️ Summer Rainy Season (SP to BA)", size="sm")
+                scenario4_btn = gr.Button("🚢 Cross-Country (SP to Amazonas)", size="sm")
 
         with gr.Column(scale=5):
             gr.Markdown("#### ⏱️ Prediction & Delivery Intelligence")
@@ -227,8 +264,10 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
             customer_state_in,
             seller_state_in,
             product_category_in,
-            price_in,
+            weight_in,
             freight_in,
+            dispatch_in,
+            weather_in,
             purchase_date_in,
             custom_dist_in
         ],
@@ -237,45 +276,45 @@ with gr.Blocks(title="E-Commerce Delivery Time Prediction System") as demo:
 
     # Scenarios logic
     scenario1_btn.click(
-        fn=lambda: ("SP - São Paulo (SP)", "SP - São Paulo (SP)", "bed_bath_table", 89.90, 12.50, "2026-06-15", 0.0),
-        outputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in]
+        fn=lambda: ("SP - São Paulo (SP)", "SP - São Paulo (SP)", "bed_bath_table", 0.8, 14.0, 0.5, "normal", "2026-06-15", 0.0),
+        outputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in]
     ).then(
         fn=format_prediction,
-        inputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in],
+        inputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in],
         outputs=[summary_out, metrics_out, factors_out]
     )
 
     scenario2_btn.click(
-        fn=lambda: ("BA - Bahia (BA)", "SP - São Paulo (SP)", "computers_accessories", 250.0, 32.0, "2026-07-10", 0.0),
-        outputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in]
+        fn=lambda: ("RJ - Rio de Janeiro (RJ)", "SP - São Paulo (SP)", "office_furniture", 18.0, 65.0, 4.0, "normal", "2026-05-10", 0.0),
+        outputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in]
     ).then(
         fn=format_prediction,
-        inputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in],
+        inputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in],
         outputs=[summary_out, metrics_out, factors_out]
     )
 
     scenario3_btn.click(
-        fn=lambda: ("AM - Amazonas (AM)", "SP - São Paulo (SP)", "sports_leisure", 180.0, 58.0, "2026-08-20", 0.0),
-        outputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in]
+        fn=lambda: ("BA - Bahia (BA)", "SP - São Paulo (SP)", "computers_accessories", 2.5, 38.0, 2.0, "rainy_season", "2026-01-20", 0.0),
+        outputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in]
     ).then(
         fn=format_prediction,
-        inputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in],
+        inputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in],
         outputs=[summary_out, metrics_out, factors_out]
     )
 
     scenario4_btn.click(
-        fn=lambda: ("RJ - Rio de Janeiro (RJ)", "SP - São Paulo (SP)", "watches_gifts", 340.0, 24.0, "2026-11-25", 0.0),
-        outputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in]
+        fn=lambda: ("AM - Amazonas (AM)", "SP - São Paulo (SP)", "sports_leisure", 4.0, 85.0, 2.0, "normal", "2026-08-20", 0.0),
+        outputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in]
     ).then(
         fn=format_prediction,
-        inputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in],
+        inputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in],
         outputs=[summary_out, metrics_out, factors_out]
     )
 
     # Initial load trigger
     demo.load(
         fn=format_prediction,
-        inputs=[customer_state_in, seller_state_in, product_category_in, price_in, freight_in, purchase_date_in, custom_dist_in],
+        inputs=[customer_state_in, seller_state_in, product_category_in, weight_in, freight_in, dispatch_in, weather_in, purchase_date_in, custom_dist_in],
         outputs=[summary_out, metrics_out, factors_out]
     )
 

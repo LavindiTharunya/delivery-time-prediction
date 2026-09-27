@@ -1,17 +1,19 @@
-{
+import json
+
+notebook = {
  "cells": [
   {
    "cell_type": "markdown",
    "metadata": {},
    "source": [
-    "# \ud83d\udce6 Model Development: E-Commerce Delivery Time Prediction\n",
+    "# 📦 Model Development: E-Commerce Delivery Time Prediction\n",
     "\n",
     "This notebook covers the complete end-to-end model training, feature iteration, and evaluation pipeline:\n",
     "1. **Baseline Modeling:** Linear Regression and Random Forest using spatial state encodings.\n",
     "2. **Logistics & Package Feature Engineering:**\n",
     "   - **Package Weight (`total_weight_g`):** Physical freight heft constraints.\n",
     "   - **Supplier Handling & Dispatch Duration (`seller_avg_dispatch_days`):** Time required by the merchant to fulfill the order before carrier handoff.\n",
-    "   - **Brazilian Weather Seasonality (`is_rainy_season`):** Impact of Brazilian summer monsoon/flood seasons (Dec\u2013Mar) on road transport transit.\n",
+    "   - **Brazilian Weather Seasonality (`is_rainy_season`):** Impact of Brazilian summer monsoon/flood seasons (Dec–Mar) on road transport transit.\n",
     "   - **Haversine Distance (`distance_km`):** Spatial transit corridor distance.\n",
     "   - **Holiday Surge Flags (`near_holiday`):** National holiday congestion periods.\n",
     "   - **Product Category Encoding:** Normalized category handling times.\n",
@@ -241,7 +243,7 @@
     "    mae = mean_absolute_error(y_test, preds)\n",
     "    rmse = np.sqrt(mean_squared_error(y_test, preds))\n",
     "    r2 = r2_score(y_test, preds)\n",
-    "    records.append({'Model': name, 'MAE (Days)': round(mae, 2), 'RMSE (Days)': round(rmse, 2), 'R\u00b2 Score': round(r2, 4)})\n",
+    "    records.append({'Model': name, 'MAE (Days)': round(mae, 2), 'RMSE (Days)': round(rmse, 2), 'R² Score': round(r2, 4)})\n",
     "\n",
     "eval_df = pd.DataFrame(records)\n",
     "eval_df"
@@ -358,8 +360,8 @@
     "        )\n",
     "        display(HTML(f\"\"\"\n",
     "        <div style='background:#f1f5f9; padding:16px; border-radius:10px; border-left: 5px solid #0284c7;'>\n",
-    "            <h3 style='margin:0; color:#0f172a;'>\ud83d\udce6 Estimated Delivery: <strong>{res['predicted_delivery_days']} Days Total</strong></h3>\n",
-    "            <p style='margin:4px 0; color:#334155;'>\ud83d\udcc5 Expected Customer Arrival: <strong>{res['estimated_delivery_date']}</strong></p>\n",
+    "            <h3 style='margin:0; color:#0f172a;'>📦 Estimated Delivery: <strong>{res['predicted_delivery_days']} Days Total</strong></h3>\n",
+    "            <p style='margin:4px 0; color:#334155;'>📅 Expected Customer Arrival: <strong>{res['estimated_delivery_date']}</strong></p>\n",
     "            <p style='margin:4px 0; color:#64748b;'>Supplier Handling: {res['logistics_breakdown']['supplier_handling_days']}d | Transit: {res['logistics_breakdown']['estimated_transit_days']}d | Weight: {res['logistics_breakdown']['package_weight_kg']} kg</p>\n",
     "            <p style='margin:4px 0; color:#0369a1;'>Weather: <em>{res['logistics_breakdown']['weather_status']}</em> | Risk Level: <strong>{res['risk_analysis']['risk_level']}</strong></p>\n",
     "        </div>\n",
@@ -400,3 +402,8 @@
  "nbformat": 4,
  "nbformat_minor": 5
 }
+
+with open("notebooks/03_model_development.ipynb", "w", encoding="utf-8") as f:
+    json.dump(notebook, f, indent=1)
+
+print("notebooks/03_model_development.ipynb updated with weight, dispatch, and weather pipeline!")

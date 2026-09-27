@@ -1,35 +1,31 @@
 # 📦 E-Commerce Delivery Time Prediction System
 
-An end-to-end Machine Learning system that predicts e-commerce package delivery times across Brazil using the Olist dataset (~96k orders). The project encompasses raw data preprocessing, multi-item order aggregation, leakage-safe spatial/temporal feature engineering, comparative model evaluation, a high-performance **FastAPI REST backend**, and a modern **interactive Gradio Web UI**.
+An end-to-end Machine Learning logistics system that predicts e-commerce package delivery durations across Brazil using the Olist dataset (~96k orders). The system incorporates raw data preprocessing, multi-item order aggregation, physical package weight modeling, supplier dispatch delays, weather seasonality risk factors, a high-performance **FastAPI REST API**, and an **interactive Gradio Web UI**.
 
 ---
 
 ## 📌 Project Overview
 
-Predicting accurate delivery arrival dates is essential for customer trust and operational efficiency in e-commerce logistics. This project compares multiple regression architectures (**Linear Regression**, **Random Forest**, and **XGBoost v1 $\rightarrow$ v2 $\rightarrow$ v3**) to predict total `delivery_days` from order purchase to customer delivery.
+Predicting accurate delivery arrival dates is vital for customer satisfaction and carrier logistics. This project evaluates regression architectures to predict total `delivery_days` from order purchase to customer delivery.
 
 ### Key Highlights
-- **Data Preprocessing & Deduplication:** Cleaned timestamps, filtered extreme postal loss delays (> 60 days), and aggregated multi-item orders into unique order-level records.
-- **Leakage-Safe Feature Engineering:**
-  - **Haversine Distance ($\text{km}$):** Great-circle spatial transit distance between customer and seller zip code coordinates.
-  - **Brazilian Holiday Proximity Flag:** Detects order surges around national holidays (Carnival, Christmas, Black Friday, etc.).
-  - **Historical Seller Performance Lookup:** Historical mean seller delivery duration computed strictly on training splits.
-  - **Category Translations & Encoding:** 72 normalized product categories capturing handling/fragility differences.
+- **Physical Package Modeling:** Integrated package weight ($\text{grams} / \text{kg}$) and package volume ($\text{cm}^3$) to capture physical transit constraints and bulk handling overhead.
+- **Supplier Fulfillment Speed:** Modeled merchant handling and carrier handoff duration (`seller_dispatch_days`).
+- **Weather & Climate Seasonality:** Engineered Brazilian summer rainy season (`is_rainy_season`) and holiday surge indicators (`near_holiday`) capturing road transit congestion and flood delays.
+- **Spatial Transit Corridors:** Vectorized Haversine distance calculations ($\text{km}$) between customer and seller zip code coordinates.
 - **Production Architecture:** Modular Python package (`src/`), REST API (`api/`), interactive web application (`app.py`), and automated test suite (`tests/`).
 
 ---
 
 ## 📊 Model Performance Comparison
 
-| Model | Feature Set | MAE (Days) | RMSE (Days) | R² Score |
+| Model | Feature Architecture | MAE (Days) | RMSE (Days) | R² Score |
 | :--- | :--- | :---: | :---: | :---: |
-| **Linear Regression (Baseline)** | Baseline (v1: 52 features) | 5.22 | 7.35 | 0.2355 |
-| **Random Forest** | Baseline (v1: 52 features) | 4.73 | 6.83 | 0.3407 |
-| **XGBoost (v1 Baseline)** | Baseline (v1: 52 features) | 4.92 | 7.84 | 0.2909 |
-| **XGBoost (v2 + Category)** | Category Added (v2: 53 features) | 4.88 | 7.78 | 0.3021 |
-| **XGBoost (Enhanced v3)** | **Spatial, Holiday & Seller History (v3: 56 features)** | **4.68** | **6.76** | **0.3526** |
+| **Linear Regression (Baseline)** | State & Date Baselines | 5.22 | 7.35 | 0.2355 |
+| **Random Forest Regressor** | Tree Ensemble with Spatial Distance | 4.44 | 6.56 | 0.3905 |
+| **XGBoost (Enhanced Logistics)** | **Weight + Supplier Dispatch + Weather Seasonality + Spatial Distance** | **4.39** | **6.49** | **0.4035** |
 
-> **Key Finding:** Transitioning to **XGBoost v3** with spatial Haversine distance, holiday surge flags, and historical seller performance yielded the best performance (MAE: **4.68 days**), outperforming linear baselines and standalone tree ensembles.
+> **Key Finding:** Incorporating physical package weight, supplier dispatch duration, and weather seasonality boosted model explanatory power to **$R^2 = 0.4035$** and lowered average error to **$4.39\text{ days}$**, significantly outperforming baseline spatial models.
 
 ---
 
@@ -38,29 +34,31 @@ Predicting accurate delivery arrival dates is essential for customer trust and o
 ```text
 delivery-time-prediction/
 │
-├── api/                             # FastAPI REST API
+├── api/                             # FastAPI REST API Backend
 │   ├── __init__.py
-│   └── main.py                      # REST endpoints (/predict, /predict_batch, /health)
+│   └── main.py                      # Endpoints (/predict, /predict_batch, /health)
 │
 ├── data/
 │   ├── raw/                         # Raw Olist CSV datasets
 │   └── processed/                   # Processed master dataset (processed_data.csv)
 │
 ├── models/                          # Serialized model artifacts (.pkl)
-│   ├── delivery_time_model.pkl      # Trained XGBoost v3 regressor
-│   ├── feature_columns.pkl          # Ordered 56-feature column list
+│   ├── delivery_time_model.pkl      # Trained XGBoost Logistics Regressor
+│   ├── feature_columns.pkl          # Ordered 58-feature column list
 │   ├── category_encoder.pkl         # Category LabelEncoder
-│   ├── seller_performance_lookup.pkl# Training seller performance Series
-│   └── distance_median_fallback.pkl # Fallback median distance constant
+│   ├── seller_performance_lookup.pkl# Training seller delivery lookup
+│   ├── seller_dispatch_lookup.pkl   # Training seller dispatch lookup
+│   ├── distance_median_fallback.pkl # Distance fallback constant
+│   └── weight_median_fallback.pkl   # Weight fallback constant
 │
 ├── notebooks/                       # Data Science & Experimentation
 │   ├── 01_data_understanding.ipynb  # Exploratory Data Analysis & visual insights
-│   ├── 02_data_cleaning.ipynb       # Cleaning, outlier filtering, & aggregation
-│   └── 03_model_development.ipynb   # End-to-end training & interactive widget
+│   ├── 02_data_cleaning.ipynb       # Cleaning, outlier filtering & aggregation
+│   └── 03_model_development.ipynb   # Weight, dispatch & weather training notebook
 │
 ├── src/                             # Core Python package
 │   ├── __init__.py
-│   ├── features.py                  # Haversine formula, holiday calendars, coordinates
+│   ├── features.py                  # Haversine distance, weather calendars, coordinates
 │   ├── preprocessing.py             # Data aggregation & cleaning pipeline
 │   ├── model.py                     # Model training, evaluation & serialization
 │   └── predict.py                   # Production DeliveryPredictor inference class
@@ -110,7 +108,7 @@ Launch the modern **Gradio Web Interface**:
 python app.py
 ```
 
-Open your browser at `http://127.0.0.1:7860` to test predictions interactively with route summaries, calendar impact indicators, and risk analysis.
+Open your browser at `http://127.0.0.1:7860` to adjust package weight, supplier dispatch speed, weather situations, origin/destination states, and view transit breakdowns.
 
 ---
 
@@ -122,9 +120,8 @@ Start the high-performance API server:
 uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
-- **API Documentation (Swagger UI):** `http://127.0.0.1:8000/docs`
-- **Alternative Docs (ReDoc):** `http://127.0.0.1:8000/redoc`
-- **Health Check:** `http://127.0.0.1:8000/health`
+* **Interactive Swagger UI:** `http://127.0.0.1:8000/docs`
+* **Health Check:** `http://127.0.0.1:8000/health`
 
 ### Example REST API Request (`POST /predict`)
 
@@ -132,8 +129,10 @@ uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 {
   "customer_state": "SP",
   "seller_state": "SP",
-  "price": 120.0,
-  "freight_value": 18.5,
+  "freight_value": 22.50,
+  "weight_g": 1500.0,
+  "supplier_dispatch_days": 1.5,
+  "weather_condition": "normal",
   "product_category": "office_furniture",
   "purchase_date": "2026-10-15"
 }
@@ -143,13 +142,19 @@ uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 
 ```json
 {
-  "predicted_delivery_days": 9.2,
-  "estimated_delivery_date": "2026-10-24",
+  "predicted_delivery_days": 6.8,
+  "estimated_delivery_date": "2026-10-22",
   "delivery_window": {
-    "min_days": 6.7,
-    "max_days": 12.2,
-    "earliest_date": "2026-10-21",
-    "latest_date": "2026-10-27"
+    "min_days": 4.8,
+    "max_days": 9.3,
+    "earliest_date": "2026-10-20",
+    "latest_date": "2026-10-24"
+  },
+  "logistics_breakdown": {
+    "supplier_handling_days": 1.5,
+    "estimated_transit_days": 5.3,
+    "package_weight_kg": 1.5,
+    "weather_status": "Clear / Standard Weather Conditions"
   },
   "route_summary": {
     "customer_state": "SP",
@@ -158,14 +163,16 @@ uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
     "distance_km": 0.0
   },
   "risk_analysis": {
-    "risk_level": "Moderate",
-    "risk_factors": ["Holiday surge period"],
-    "near_holiday": true
+    "risk_level": "Low",
+    "risk_factors": [],
+    "near_holiday": false,
+    "rainy_season": false
   },
   "order_details": {
     "product_category": "office_furniture",
-    "price": 120.0,
-    "freight_value": 18.5,
+    "freight_value": 22.5,
+    "weight_g": 1500.0,
+    "price": 100.0,
     "purchase_date": "2026-10-15"
   }
 }
@@ -176,34 +183,24 @@ uvicorn api.main:app --reload --host 127.0.0.1 --port 8000
 ## 💡 Python Inference Code Example
 
 ```python
-from src.predict import DeliveryPredictor, predict_delivery_time
+from src.predict import DeliveryPredictor
 
-# 1. Simple direct function call
-days = predict_delivery_time(
-    purchase_month=10,
-    purchase_dayofweek=0,
-    same_state=1,
-    price=100.0,
-    freight_value=18.0,
-    product_category='office_furniture',
-    distance_km=150.0,
-    near_holiday=0,
-    customer_state='SP',
-    seller_state='SP'
-)
-print(f"Predicted delivery time: {days} days")
-
-# 2. Rich object-oriented predictor
 predictor = DeliveryPredictor()
 result = predictor.predict(
-    customer_state='BA',
-    seller_state='SP',
-    price=250.0,
+    customer_state="RJ",
+    seller_state="SP",
     freight_value=35.0,
-    product_category='computers_accessories',
-    purchase_date='2026-11-25' # Near Black Friday
+    weight_g=3500.0,            # 3.5 kg package
+    supplier_dispatch_days=2.0, # 2 days dispatch
+    weather_condition="rainy_season", # Summer flood/rain risk
+    product_category="office_furniture",
+    purchase_date="2026-01-20"
 )
-print(f"Estimated Arrival: {result['estimated_delivery_date']} ({result['predicted_delivery_days']} days)")
+
+print(f"Predicted Total Duration: {result['predicted_delivery_days']} days")
+print(f"Expected Arrival Date: {result['estimated_delivery_date']}")
+print(f"Supplier Handling: {result['logistics_breakdown']['supplier_handling_days']} days")
+print(f"Carrier Transit: {result['logistics_breakdown']['estimated_transit_days']} days")
 print(f"Risk Level: {result['risk_analysis']['risk_level']}")
 ```
 
@@ -211,15 +208,6 @@ print(f"Risk Level: {result['risk_analysis']['risk_level']}")
 
 ## 🧪 Running Automated Tests
 
-Run the full `pytest` suite across feature calculations, predictor pipelines, and API endpoints:
-
 ```bash
 pytest tests/ -v
 ```
-
----
-
-## 📈 Future Improvements
-- **Quantile Regression:** Generating custom loss objectives to predict 10th and 90th percentile delivery bounds natively.
-- **Hyperparameter Optimization:** Automated Optuna tuning on CatBoost and LightGBM architectures.
-- **Route Topology:** Replacing direct Haversine calculations with postal transit corridor graphs.
